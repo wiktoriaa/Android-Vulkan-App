@@ -18,7 +18,7 @@
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
-#include <assert.h>
+#include <cassert>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -50,6 +50,8 @@ namespace vkt {
       abort();                                \
     }                                         \
   } while (0)
+
+    const int MAX_FRAMES_IN_FLIGHT = 2;
 
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
@@ -156,21 +158,48 @@ namespace vkt {
     class HelloVK {
     public:
         void initVulkan();
+
         bool initialized = false;
+
+        void cleanup();
+
+        void cleanupSwapChain();
+
+        void reset(ANativeWindow *newWindow, AAssetManager *newManager);
+
     private:
         void createDevice();
+
         void createInstance();
+
         void createSurface();
+
         void setupDebugMessenger();
+
         void pickPhysicalDevice();
+
         void createLogicalDeviceAndQueue();
+
+        void createSwapChain();
+
+        void createSyncObjects();
+
         QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
+
         bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+
         bool isDeviceSuitable(VkPhysicalDevice device);
+
         bool checkValidationLayerSupport();
+
         std::vector<const char *> getRequiredExtensions(bool enableValidation);
+
         SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+
+        void recreateSwapChain();
+
         void establishDisplaySizeIdentity();
+
 
         bool enableValidationLayers = false;
         const std::vector<const char *> validationLayers = {
@@ -184,9 +213,20 @@ namespace vkt {
         VkSurfaceKHR surface;
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         VkDevice device;
+
+        VkSwapchainKHR swapChain;
+        std::vector<VkImage> swapChainImages;
+        VkFormat swapChainImageFormat;
+        VkExtent2D swapChainExtent;
         VkExtent2D displaySizeIdentity;
+
         VkQueue graphicsQueue;
         VkQueue presentQueue;
+
+        std::vector<VkSemaphore> imageAvailableSemaphores;
+        std::vector<VkSemaphore> renderFinishedSemaphores;
+        std::vector<VkFence> inFlightFences;
+        VkSurfaceTransformFlagBitsKHR pretransformFlag;
     };
 
     void HelloVK::initVulkan() {
@@ -196,8 +236,29 @@ namespace vkt {
         createLogicalDeviceAndQueue();
         setupDebugMessenger();
         establishDisplaySizeIdentity();
+        createSwapChain();
+        createSyncObjects();
         initialized = true;
     }
+
+    void HelloVK::reset(ANativeWindow *newWindow, AAssetManager *newManager) {
+        window.reset(newWindow);
+        assetManager = newManager;
+        if (initialized) {
+            createSurface();
+            recreateSwapChain();
+        }
+    }
+
+    void HelloVK::recreateSwapChain() {
+        vkDeviceWaitIdle(device);
+        cleanupSwapChain();
+        createSwapChain();
+    }
+
+    void HelloVK::cleanupSwapChain() {
+    }
+
     void HelloVK::setupDebugMessenger() {
         if (!enableValidationLayers) {
             return;
@@ -207,14 +268,15 @@ namespace vkt {
         VK_CHECK(CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr,
                                               &debugMessenger));
     }
+
     bool HelloVK::checkValidationLayerSupport() {
         uint32_t layerCount;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
         std::vector<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-        for (const char *layerName : validationLayers) {
+        for (const char *layerName: validationLayers) {
             bool layerFound = false;
-            for (const auto &layerProperties : availableLayers) {
+            for (const auto &layerProperties: availableLayers) {
                 if (strcmp(layerName, layerProperties.layerName) == 0) {
                     layerFound = true;
                     break;
@@ -226,6 +288,7 @@ namespace vkt {
         }
         return true;
     }
+
     std::vector<const char *> HelloVK::getRequiredExtensions(
             bool enableValidationLayers) {
         std::vector<const char *> extensions;
@@ -236,6 +299,7 @@ namespace vkt {
         }
         return extensions;
     }
+
     void HelloVK::createInstance() {
         assert(!enableValidationLayers ||
                checkValidationLayerSupport());  // validation layers requested, but
@@ -251,7 +315,7 @@ namespace vkt {
         VkInstanceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo = &appInfo;
-        createInfo.enabledExtensionCount = (uint32_t)requiredExtensions.size();
+        createInfo.enabledExtensionCount = (uint32_t) requiredExtensions.size();
         createInfo.ppEnabledExtensionNames = requiredExtensions.data();
         createInfo.pApplicationInfo = &appInfo;
         if (enableValidationLayers) {
@@ -260,7 +324,7 @@ namespace vkt {
                     static_cast<uint32_t>(validationLayers.size());
             createInfo.ppEnabledLayerNames = validationLayers.data();
             populateDebugMessengerCreateInfo(debugCreateInfo);
-            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
+            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *) &debugCreateInfo;
         } else {
             createInfo.enabledLayerCount = 0;
             createInfo.pNext = nullptr;
@@ -272,10 +336,11 @@ namespace vkt {
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
                                                extensions.data());
         LOGI("available extensions");
-        for (const auto &extension : extensions) {
+        for (const auto &extension: extensions) {
             LOGI("\t %s", extension.extensionName);
         }
     }
+
 /*
  * createSurface can only be called after the android ecosystem has had the
  * chance to provide a native window. This happens after the APP_CMD_START event
@@ -294,6 +359,7 @@ namespace vkt {
         VK_CHECK(vkCreateAndroidSurfaceKHR(instance, &create_info,
                                            nullptr /* pAllocator */, &surface));
     }
+
 // BEGIN DEVICE SUITABILITY
 // Functions to find a suitable physical device to execute Vulkan commands.
     QueueFamilyIndices HelloVK::findQueueFamilies(VkPhysicalDevice device) {
@@ -304,7 +370,7 @@ namespace vkt {
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
                                                  queueFamilies.data());
         int i = 0;
-        for (const auto &queueFamily : queueFamilies) {
+        for (const auto &queueFamily: queueFamilies) {
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
@@ -320,6 +386,7 @@ namespace vkt {
         }
         return indices;
     }
+
     bool HelloVK::checkDeviceExtensionSupport(VkPhysicalDevice device) {
         uint32_t extensionCount;
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount,
@@ -327,13 +394,14 @@ namespace vkt {
         std::vector<VkExtensionProperties> availableExtensions(extensionCount);
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount,
                                              availableExtensions.data());
-        std::set<std::string> requiredExtensions(deviceExtensions.begin(),
-                                                 deviceExtensions.end());
-        for (const auto &extension : availableExtensions) {
+        std::set < std::string > requiredExtensions(deviceExtensions.begin(),
+                                                    deviceExtensions.end());
+        for (const auto &extension: availableExtensions) {
             requiredExtensions.erase(extension.extensionName);
         }
         return requiredExtensions.empty();
     }
+
     SwapChainSupportDetails HelloVK::querySwapChainSupport(
             VkPhysicalDevice device) {
         SwapChainSupportDetails details;
@@ -356,6 +424,7 @@ namespace vkt {
         }
         return details;
     }
+
     bool HelloVK::isDeviceSuitable(VkPhysicalDevice device) {
         QueueFamilyIndices indices = findQueueFamilies(device);
         bool extensionsSupported = checkDeviceExtensionSupport(device);
@@ -367,13 +436,14 @@ namespace vkt {
         }
         return indices.isComplete() && extensionsSupported && swapChainAdequate;
     }
+
     void HelloVK::pickPhysicalDevice() {
         uint32_t deviceCount = 0;
         vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
         assert(deviceCount > 0);  // failed to find GPUs with Vulkan support!
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
-        for (const auto &device : devices) {
+        for (const auto &device: devices) {
             if (isDeviceSuitable(device)) {
                 physicalDevice = device;
                 break;
@@ -381,14 +451,17 @@ namespace vkt {
         }
         assert(physicalDevice != VK_NULL_HANDLE);  // failed to find a suitable GPU!
     }
+
 // // END DEVICE SUITABILITY
+
+
     void HelloVK::createLogicalDeviceAndQueue() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
-                                                  indices.presentFamily.value()};
+        std::set < uint32_t > uniqueQueueFamilies = {indices.graphicsFamily.value(),
+                                                     indices.presentFamily.value()};
         float queuePriority = 1.0f;
-        for (uint32_t queueFamily : uniqueQueueFamilies) {
+        for (uint32_t queueFamily: uniqueQueueFamilies) {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queueCreateInfo.queueFamilyIndex = queueFamily;
@@ -417,6 +490,7 @@ namespace vkt {
         vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
     }
+
     void HelloVK::establishDisplaySizeIdentity() {
         VkSurfaceCapabilitiesKHR capabilities;
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,
@@ -431,5 +505,97 @@ namespace vkt {
         }
         displaySizeIdentity = capabilities.currentExtent;
     }
+
+//    Swapchain - a queue of images
+
+    void HelloVK::createSwapChain() {
+        SwapChainSupportDetails swapChainSupport =
+                querySwapChainSupport(physicalDevice);
+        auto chooseSwapSurfaceFormat =
+                [](const std::vector<VkSurfaceFormatKHR> &availableFormats) {
+                    for (const auto &availableFormat: availableFormats) {
+                        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+                            availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                            return availableFormat;
+                        }
+                    }
+                    return availableFormats[0];
+                };
+        VkSurfaceFormatKHR surfaceFormat =
+                chooseSwapSurfaceFormat(swapChainSupport.formats);
+        // Please check
+        // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html
+        // for a discourse on different present modes.
+        //
+        // VK_PRESENT_MODE_FIFO_KHR = Hard Vsync
+        // This is always supported on Android phones
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+
+        if (swapChainSupport.capabilities.maxImageCount > 0 &&
+            imageCount > swapChainSupport.capabilities.maxImageCount) {
+            imageCount = swapChainSupport.capabilities.maxImageCount;
+        }
+
+        pretransformFlag = swapChainSupport.capabilities.currentTransform;
+        VkSwapchainCreateInfoKHR createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = surface;
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = surfaceFormat.format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = displaySizeIdentity;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        createInfo.preTransform = pretransformFlag;
+        QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+        uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(),
+                                         indices.presentFamily.value()};
+        if (indices.graphicsFamily != indices.presentFamily) {
+            createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices = queueFamilyIndices;
+        } else {
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = nullptr;
+        }
+
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE;
+        createInfo.oldSwapchain = VK_NULL_HANDLE;
+        VK_CHECK(vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain));
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+        swapChainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount,
+                                swapChainImages.data());
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = displaySizeIdentity;
+    }
+
+    void HelloVK::createSyncObjects() {
+        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+                                       &imageAvailableSemaphores[i]));
+
+            VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr,
+                                       &renderFinishedSemaphores[i]));
+
+            VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]));
+        }
+    }
+
+// End of swapchain
 
 }  // namespace vkt
