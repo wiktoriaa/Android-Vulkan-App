@@ -477,10 +477,10 @@ void getPrerotationMatrix(const VkSurfaceCapabilitiesKHR &capabilities,
   // mat is initialized to the identity matrix
   mat = glm::mat4(1.0f);
 
-  mat = glm::rotate(mat, glm::radians(5.0f), glm::vec3(1.0f, 0.0f, 0.0f)); // Permanent rotation
+  mat = glm::rotate(mat, glm::radians(25.0f), glm::vec3(0.0f, 1.0f, 0.0f)); // Permanent rotation
 
 
-        if (pretransformFlag & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+  if (pretransformFlag & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
     // mat is set to a 90 deg rotation matrix around Z axis
     mat = glm::rotate(mat, glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
   }
@@ -497,7 +497,7 @@ void getPrerotationMatrix(const VkSurfaceCapabilitiesKHR &capabilities,
 
   currentAngleDegreesY += 1.0f;
 
-  mat = glm::rotate(mat, glm::radians(currentAngleDegreesY), glm::vec3(0.0f, 1.0f, 0.0f));  // Rotation around y-axis
+  mat = glm::rotate(mat, glm::radians(currentAngleDegreesY), glm::vec3(0.0f, 0.0f, 1.0f));  // Rotation around y-axis
 }
 
 void HelloVK::createDescriptorPool() {
