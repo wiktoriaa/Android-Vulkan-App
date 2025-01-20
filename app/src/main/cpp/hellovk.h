@@ -549,7 +549,7 @@ void HelloVK::updateUniformBuffer(uint32_t currentImage) {
   SwapChainSupportDetails swapChainSupport =
       querySwapChainSupport(physicalDevice);
   UniformBufferObject ubo{};
-  float ratio = (float)swapChainExtent.width / (float)swapChainExtent.height; 
+  float ratio = (float)swapChainExtent.width / (float)swapChainExtent.height;
   getPrerotationMatrix(swapChainSupport.capabilities, pretransformFlag,
                        ubo.mvp, ratio);
   void *data;
